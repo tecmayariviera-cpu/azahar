@@ -68,6 +68,9 @@ class EmulationActivity : AppCompatActivity() {
     private lateinit var binding: ActivityEmulationBinding
     private lateinit var screenAdjustmentUtil: ScreenAdjustmentUtil
     private lateinit var gamepadEventHandler: GamepadEventHandler
+
+    /** Input device descriptors already checked for automatic controller setup. */
+    private val checkedControllers = HashSet<String>()
     lateinit var secondaryDisplayManager: SecondaryDisplay
 
     private val onShutdown = Runnable {
@@ -437,6 +440,8 @@ class EmulationActivity : AppCompatActivity() {
             return super.dispatchKeyEvent(event)
         }
 
+        maybeAutoConfigureController(event.device)
+
         when (event.action) {
             KeyEvent.ACTION_DOWN -> {
                 // On some devices, the back gesture / button press is not intercepted by androidx
@@ -483,7 +488,16 @@ class EmulationActivity : AppCompatActivity() {
             return super.dispatchGenericMotionEvent(event)
         }
 
+        maybeAutoConfigureController(event.device)
         return gamepadEventHandler.handleMotionEvent(event)
+    }
+
+    /** Sets up known controllers (currently the GameSir G8) the first time they are used. */
+    private fun maybeAutoConfigureController(device: InputDevice?) {
+        if (device == null || !checkedControllers.add(device.descriptor)) return
+        if (GamepadHelper.autoConfigureGameSirG8(device)) {
+            Toast.makeText(this, R.string.gamesir_g8_auto_configured, Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun showAnime4kDialog() {

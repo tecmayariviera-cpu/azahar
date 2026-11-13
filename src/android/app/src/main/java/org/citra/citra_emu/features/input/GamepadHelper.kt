@@ -24,6 +24,8 @@ object GamepadHelper {
     private val BUTTON_NAME_L3 = "Button L3"
     private val BUTTON_NAME_R3 = "Button R3"
     private val NINTENDO_VENDOR_ID = 0x057e
+    private val GAMESIR_VENDOR_ID = 0x3537
+    private const val PREF_GAMESIR_G8_AUTO_CONFIGURED = "GameSirG8_AutoConfigured"
 
     // Linux BTN_DPAD_* values (0x220-0x223). Joy-Con D-pad buttons arrive as
     // KEYCODE_UNKNOWN with these scan codes because Android's input layer doesn't
@@ -170,6 +172,84 @@ object GamepadHelper {
             }
         }
         return !hasHatAxes && !hasStandardRightStick
+    }
+
+    /**
+     * Detects a GameSir G8 family controller (G8 Galileo USB-C, G8+ Bluetooth, etc).
+     * GameSir uses the 0x3537 USB vendor ID, but over Bluetooth the vendor ID is not always
+     * reported, so the device name is used as a fallback (e.g. "GameSir-G8 Galileo").
+     */
+    fun isGameSirG8(device: InputDevice?): Boolean {
+        if (device == null) return false
+        val name = device.name.lowercase().replace('-', ' ').replace('_', ' ')
+        val isGameSir = device.vendorId == GAMESIR_VENDOR_ID || name.contains("gamesir")
+        return isGameSir && Regex("""\bg8\b""").containsMatchIn(name)
+    }
+
+    /**
+     * Returns true for axis d-pad (HAT_X/HAT_Y), false for button d-pad (DPAD_UP/DOWN/LEFT/RIGHT).
+     * Prefers axis when both are present. Defaults to axis if detection fails.
+     */
+    fun detectDpadType(device: InputDevice?): Boolean {
+        if (device == null) return true
+
+        val hasAxisDpad = device.motionRanges.any {
+            it.axis == MotionEvent.AXIS_HAT_X || it.axis == MotionEvent.AXIS_HAT_Y
+        }
+        if (hasAxisDpad) return true
+
+        val hasButtonDpad = device.hasKeys(
+            KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_DPAD_RIGHT
+        ).any { it }
+        return !hasButtonDpad
+    }
+
+    /**
+     * Applies a default mapping the first time a GameSir G8 sends input, so it works without
+     * any manual setup. Does nothing if the user already has any controller binding (global
+     * or per-game), or if this was already done once (so clearing the mapping on purpose is
+     * respected). The G8 reports standard Android gamepad keycodes with the Xbox face layout
+     * (BUTTON_A = south), so buttons are mapped by position like the 3DS diamond.
+     *
+     * @return true if bindings were applied
+     */
+    fun autoConfigureGameSirG8(device: InputDevice?): Boolean {
+        if (!isGameSirG8(device)) return false
+
+        val preferences = PreferenceManager.getDefaultSharedPreferences(CitraApplication.appContext)
+        if (preferences.getBoolean(PREF_GAMESIR_G8_AUTO_CONFIGURED, false)) return false
+
+        val settings = CitraSettings.activeSettings
+        val hasExistingBindings = InputMappingSetting.entries.any {
+            settings.get(it)?.empty == false
+        }
+        preferences.edit { putBoolean(PREF_GAMESIR_G8_AUTO_CONFIGURED, true) }
+        if (hasExistingBindings) {
+            Log.info("[GamepadHelper] GameSir G8 detected, keeping existing user bindings")
+            return false
+        }
+
+        val useAxisDpad = detectDpadType(device)
+        Log.info(
+            "[GamepadHelper] GameSir G8 detected (${device?.name}), applying default bindings " +
+                "(dpad=${if (useAxisDpad) "axis" else "button"})"
+        )
+        val faceAndButtons = xboxFaceButtonMappings + commonButtonMappings +
+            if (useAxisDpad) emptyList<DefaultButtonMapping>() else dpadButtonMappings
+        val axes = stickAxisMappings +
+            if (useAxisDpad) dpadAxisMappings else emptyList<DefaultAxisMapping>()
+        // Write to the global settings so the mapping applies to every game.
+        faceAndButtons.forEach {
+            settings.setGlobal(it.setting, Input(key = it.hostKeyCode))
+        }
+        axes.forEach {
+            settings.setGlobal(it.setting, Input(axis = it.hostAxis, direction = it.hostDirection))
+        }
+        SettingsFile.saveGlobalFile(settings)
+        return true
     }
 
     fun clearAllBindings(settings: CitraSettings) {
