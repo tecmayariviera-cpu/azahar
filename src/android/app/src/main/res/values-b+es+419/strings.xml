@@ -104,6 +104,7 @@
     <string name="controller_auto_map">Asignar control automáticamente</string>
     <string name="controller_auto_map_description">Aplica la asignación de control estándar para todos los botones y ejes</string>
     <string name="auto_map_prompt">¡Presiona este botón en tu control!</string>
+    <string name="gamesir_g8_auto_configured">GameSir G8 detectado: controles configurados automáticamente</string>
     <string name="auto_map_image_description">Botones frontales de 3DS en rombo con el botón A resaltado</string>
     <string name="controller_clear_all">Eliminar todas las asignaciones</string>
     <string name="controller_clear_all_confirm">Esto eliminará todas los asignaciones del control actual.</string>
